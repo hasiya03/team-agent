@@ -148,6 +148,8 @@ export async function classifyConversationMessage(params: {
       "Questions must be classified as query intents, not as task updates.",
       "Member questions like 'what are my tasks' are list_my_tasks.",
       "Admin questions like 'what are open tasks' are list_open_tasks.",
+      "Admin questions like 'what are this week's tasks for each member' are list_open_tasks.",
+      "Admin requests to show tasks for all members are list_open_tasks.",
       "Admin questions like 'what did laski reply' are get_member_latest_reply.",
       "Reminder requests are send_reminder.",
       "Deletion or risky changes must be classified, but the app will ask confirmation.",
@@ -186,7 +188,10 @@ function classifyConversationHeuristic(params: {
   if (/^cancel$/i.test(text)) return { senderRole: params.senderRole, intent: "cancel", confidence: 1 };
 
   if (params.senderRole === "member") {
-    if (/\b(my|weekly|open|remaining)\b.*\b(tasks?|work)\b|\bwhat\b.*\b(tasks?|work)\b/i.test(text)) {
+    if (
+      /\b(my|weekly|open|remaining)\b.*\b(tasks?|work)\b|\bwhat\b.*\b(tasks?|work)\b/i.test(text) ||
+      /\bdeadlines?|due\s+dates?\b/i.test(text)
+    ) {
       return { senderRole: "member", intent: "list_my_tasks", confidence: 0.85, message: text };
     }
     return { senderRole: "member", intent: "member_status_update", confidence: 0.7, message: text };
@@ -202,7 +207,12 @@ function classifyConversationHeuristic(params: {
     return { senderRole: "admin", intent: "get_member_latest_reply", targetMemberName: replyQuery[1].trim(), confidence: 0.8 };
   }
 
-  if (/\bopen\b.*\btasks?\b|\btasks?\b.*\bopen\b/i.test(text)) {
+  if (
+    /\bopen\b.*\btasks?\b|\btasks?\b.*\bopen\b/i.test(text) ||
+    /\b(?:this|these)\s+weeks?'?s?\b.*\btasks?\b/i.test(text) ||
+    /\btasks?\b.*\b(?:for\s+)?(?:each|every|all)\s+(?:team\s+)?members?\b/i.test(text) ||
+    /\b(?:each|every|all)\s+(?:team\s+)?members?\b.*\btasks?\b/i.test(text)
+  ) {
     return { senderRole: "admin", intent: "list_open_tasks", confidence: 0.8, message: text };
   }
 

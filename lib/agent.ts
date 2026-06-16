@@ -412,7 +412,7 @@ async function remainingWorkMessage(memberId: string) {
   if (tasks.length) {
     lines.push("");
     lines.push("Tasks:");
-    lines.push(...tasks.map((task, index) => `${index + 1}. ${task.title} - ${task.status.replace(/_/g, " ")}`));
+    lines.push(...tasks.map((task, index) => `${index + 1}. ${task.title} - ${task.status.replace(/_/g, " ")} - Due: ${formatDate(task.deadline)}`));
   }
 
   if (leads.length) {
