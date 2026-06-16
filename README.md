@@ -19,6 +19,8 @@ TWILIO_AUTH_TOKEN=...
 TWILIO_WHATSAPP_FROM=whatsapp:+14155238886
 GOOGLE_GENERATIVE_AI_API_KEY=...
 CRON_SECRET=...
+SUPABASE_URL=...
+SUPABASE_SERVICE_ROLE_KEY=...
 ```
 
 3. Run locally:
@@ -69,7 +71,9 @@ Bulk weekly plans ask the admin to reply `CONFIRM` before messages go out.
 
 ## Storage
 
-The MVP uses a local JSON file at `.data/team-manager.json` so it works immediately. On Vercel, use a real database before production because serverless file storage is not durable.
+The MVP uses Supabase when `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are set. Run `supabase/schema.sql` in the Supabase SQL Editor first.
+
+If Supabase env vars are missing, the app falls back to a local JSON file at `.data/team-manager.json` so it works immediately during local development.
 
 When deployed on Vercel without `DATA_DIR`, the app falls back to `/tmp/team-manager-agent` so webhooks do not crash on the read-only deployment filesystem. This is only temporary storage and can be reset by Vercel between function instances.
 

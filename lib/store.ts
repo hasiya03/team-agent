@@ -12,6 +12,21 @@ import type {
   Task,
   TeamMember
 } from "@/lib/types";
+import {
+  deleteSupabaseConfirmation,
+  hasSupabaseConfig,
+  insertSupabaseConfirmation,
+  insertSupabaseLead,
+  insertSupabaseMessage,
+  insertSupabaseReminder,
+  insertSupabaseTasks,
+  patchSupabaseLead,
+  patchSupabaseReminder,
+  patchSupabaseTask,
+  readSupabaseState,
+  upsertSupabaseMember,
+  upsertSupabaseMemory
+} from "@/lib/supabase-store";
 import { createId, isDue, nowIso, samePhone, startOfToday } from "@/lib/utils";
 
 const dataDir = process.env.DATA_DIR || (process.env.VERCEL ? path.join(os.tmpdir(), "team-manager-agent") : path.join(process.cwd(), ".data"));
@@ -37,12 +52,14 @@ async function ensureDataFile() {
 }
 
 export async function readState(): Promise<AppState> {
+  if (hasSupabaseConfig()) return readSupabaseState();
   await ensureDataFile();
   const raw = await readFile(dataFile, "utf8");
   return { ...emptyState, ...JSON.parse(raw) } as AppState;
 }
 
 export async function writeState(state: AppState) {
+  if (hasSupabaseConfig()) return;
   await ensureDataFile();
   await writeFile(dataFile, JSON.stringify(state, null, 2));
 }
@@ -65,16 +82,18 @@ export async function addMember(input: Omit<TeamMember, "id" | "createdAt" | "ac
   const existing = state.members.find((member) => samePhone(member.phone, input.phone) || member.name.toLowerCase() === input.name.toLowerCase());
   if (existing) {
     Object.assign(existing, input, { active: input.active ?? existing.active });
+    if (hasSupabaseConfig()) return upsertSupabaseMember(existing);
     await writeState(state);
     return existing;
   }
 
   const member: TeamMember = {
     id: createId("mem"),
-    active: input.active ?? true,
     createdAt: nowIso(),
-    ...input
+    ...input,
+    active: input.active ?? true
   };
+  if (hasSupabaseConfig()) return upsertSupabaseMember(member);
   state.members.push(member);
   await writeState(state);
   return member;
@@ -96,6 +115,7 @@ export async function markMemberReplied(memberId: string) {
   const member = state.members.find((item) => item.id === memberId);
   if (!member) return undefined;
   member.lastReplyAt = nowIso();
+  if (hasSupabaseConfig()) return upsertSupabaseMember(member);
   await writeState(state);
   return member;
 }
@@ -107,6 +127,7 @@ export async function addMessage(message: Omit<AgentMessage, "id" | "createdAt">
     createdAt: nowIso(),
     ...message
   };
+  if (hasSupabaseConfig()) return insertSupabaseMessage(stored);
   state.messages.unshift(stored);
   state.messages = state.messages.slice(0, 500);
   await writeState(state);
@@ -117,11 +138,12 @@ export async function addTasks(tasks: Array<Omit<Task, "id" | "createdAt" | "upd
   const state = await readState();
   const created = tasks.map((task) => ({
     id: createId("task"),
-    status: task.status ?? "todo",
     createdAt: nowIso(),
     updatedAt: nowIso(),
-    ...task
+    ...task,
+    status: task.status ?? "todo"
   }));
+  if (hasSupabaseConfig()) return insertSupabaseTasks(created);
   state.tasks.unshift(...created);
   await writeState(state);
   return created;
@@ -134,6 +156,7 @@ export async function updateTaskStatus(taskId: string, status: Task["status"], n
   task.status = status;
   task.updatedAt = nowIso();
   if (note) task.description = [task.description, `Update: ${note}`].filter(Boolean).join("\n");
+  if (hasSupabaseConfig()) return patchSupabaseTask(task);
   await writeState(state);
   return task;
 }
@@ -142,11 +165,12 @@ export async function addLead(lead: Omit<Lead, "id" | "createdAt" | "updatedAt" 
   const state = await readState();
   const stored: Lead = {
     id: createId("lead"),
-    status: lead.status ?? "new",
     createdAt: nowIso(),
     updatedAt: nowIso(),
-    ...lead
+    ...lead,
+    status: lead.status ?? "new"
   };
+  if (hasSupabaseConfig()) return insertSupabaseLead(stored);
   state.leads.unshift(stored);
   await writeState(state);
   return stored;
@@ -159,6 +183,7 @@ export async function updateLeadStatus(leadId: string, status: Lead["status"], n
   lead.status = status;
   lead.updatedAt = nowIso();
   if (note) lead.notes = [lead.notes, `Update: ${note}`].filter(Boolean).join("\n");
+  if (hasSupabaseConfig()) return patchSupabaseLead(lead);
   await writeState(state);
   return lead;
 }
@@ -172,6 +197,10 @@ export async function upsertMemory(memory: MemberMemory) {
   } else {
     state.memories.push(memory);
   }
+  if (hasSupabaseConfig()) {
+    await upsertSupabaseMemory(memory);
+    return;
+  }
   await writeState(state);
 }
 
@@ -180,9 +209,10 @@ export async function addReminder(reminder: Omit<Reminder, "id" | "createdAt" | 
   const stored: Reminder = {
     id: createId("rem"),
     createdAt: nowIso(),
-    status: reminder.status ?? "pending",
-    ...reminder
+    ...reminder,
+    status: reminder.status ?? "pending"
   };
+  if (hasSupabaseConfig()) return insertSupabaseReminder(stored);
   state.reminders.push(stored);
   await writeState(state);
   return stored;
@@ -207,6 +237,10 @@ export async function markReminderSent(reminderId: string, sent = true) {
   if (!reminder) return;
   reminder.status = sent ? "sent" : "failed";
   reminder.sentAt = nowIso();
+  if (hasSupabaseConfig()) {
+    await patchSupabaseReminder(reminder);
+    return;
+  }
   await writeState(state);
 }
 
@@ -217,6 +251,7 @@ export async function addConfirmation(confirmation: Omit<PendingConfirmation, "i
     createdAt: nowIso(),
     ...confirmation
   };
+  if (hasSupabaseConfig()) return insertSupabaseConfirmation(stored);
   state.confirmations = state.confirmations.filter((item) => new Date(item.expiresAt).getTime() > Date.now());
   state.confirmations.unshift(stored);
   await writeState(state);
@@ -228,6 +263,10 @@ export async function popLatestConfirmation(adminPhone: string) {
   const index = state.confirmations.findIndex((item) => samePhone(item.adminPhone, adminPhone) && new Date(item.expiresAt).getTime() > Date.now());
   if (index < 0) return undefined;
   const [confirmation] = state.confirmations.splice(index, 1);
+  if (hasSupabaseConfig()) {
+    await deleteSupabaseConfirmation(confirmation.id);
+    return confirmation;
+  }
   await writeState(state);
   return confirmation;
 }
