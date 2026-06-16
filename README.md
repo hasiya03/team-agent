@@ -67,6 +67,14 @@ Show today
 Who has not replied today?
 ```
 
+```text
+Send reminders now
+```
+
+```text
+Remind Amal now
+```
+
 Bulk weekly plans ask the admin to reply `CONFIRM` before messages go out.
 
 ## Storage

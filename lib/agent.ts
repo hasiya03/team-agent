@@ -52,6 +52,11 @@ export async function handleIncomingWhatsApp(params: {
 }
 
 async function handleAdminMessage(adminPhone: string, body: string) {
+  const manualReminder = body.trim().match(/^(?:send\s+reminders\s+now|remind\s+(all|[a-zA-Z ]+)\s+now)$/i);
+  if (manualReminder) {
+    return sendManualReminders(manualReminder[1]);
+  }
+
   if (/^confirm$/i.test(body.trim())) {
     const confirmation = await popLatestConfirmation(adminPhone);
     if (!confirmation) return "No active confirmation found.";
@@ -255,6 +260,43 @@ export async function buildDailyReminders() {
     created.push(reminder);
   }
   return created;
+}
+
+async function sendManualReminders(target?: string) {
+  const state = await readState();
+  const normalizedTarget = target?.trim().toLowerCase();
+  const members = state.members.filter((member) => {
+    if (!member.active || member.role === "admin") return false;
+    if (!normalizedTarget || normalizedTarget === "all") return true;
+    return member.name.toLowerCase() === normalizedTarget || member.name.toLowerCase().includes(normalizedTarget);
+  });
+
+  if (!members.length) {
+    return normalizedTarget && normalizedTarget !== "all"
+      ? `I could not find an active member matching "${target}".`
+      : "No active team members found.";
+  }
+
+  const sentTo = [];
+  const skipped = [];
+
+  for (const member of members) {
+    const tasks = state.tasks.filter((task) => task.memberId === member.id && !["done", "cancelled"].includes(task.status));
+    const leads = state.leads.filter((lead) => lead.assignedToMemberId === member.id && !["closed", "not_interested"].includes(lead.status));
+    if (!tasks.length && !leads.length) {
+      skipped.push(member.name);
+      continue;
+    }
+    await sendWhatsApp(member.phone, dailyCheckinMessage(member, tasks, leads));
+    sentTo.push(member.name);
+  }
+
+  return [
+    sentTo.length ? `Sent reminders to: ${sentTo.join(", ")}.` : "No reminders sent.",
+    skipped.length ? `Skipped with no open work: ${skipped.join(", ")}.` : ""
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 function nextReminderTime(hour: number) {
