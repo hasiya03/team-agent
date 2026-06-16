@@ -13,9 +13,19 @@ export async function sendWhatsApp(to: string, body: string) {
   }
 
   const client = twilio(sid, token);
-  const message = await client.messages.create({ from, to, body });
-  await addMessage({ twilioMessageSid: message.sid, from, to, body, direction: "outbound" });
-  return message;
+  try {
+    const message = await client.messages.create({ from, to, body });
+    await addMessage({ twilioMessageSid: message.sid, from, to, body, direction: "outbound" });
+    return message;
+  } catch (error) {
+    console.error("[twilio:send:error]", { to, error });
+    try {
+      await addMessage({ from, to, body: `[send failed] ${body}`, direction: "outbound" });
+    } catch (storeError) {
+      console.error("[twilio:send:store-error]", storeError);
+    }
+    return { sid: "failed" };
+  }
 }
 
 export function twiml(message?: string) {

@@ -138,43 +138,48 @@ export async function classifyConversationMessage(params: {
     createdAt: message.createdAt
   }));
 
-  const { output } = await generateText({
-    model,
-    output: Output.object({ schema: conversationIntentSchema }),
-    system: [
-      "You are a WhatsApp operations agent for a small Sri Lankan team.",
-      "Classify the latest message conversation-wise before any action is taken.",
-      "Return only one intent and structured fields needed by the app.",
-      "Questions must be classified as query intents, not as task updates.",
-      "Member questions like 'what are my tasks' are list_my_tasks.",
-      "Admin questions like 'what are open tasks' are list_open_tasks.",
-      "Admin questions like 'what are this week's tasks for each member' are list_open_tasks.",
-      "Admin requests to show tasks for all members are list_open_tasks.",
-      "Admin questions like 'what did laski reply' are get_member_latest_reply.",
-      "Reminder requests are send_reminder.",
-      "Deletion or risky changes must be classified, but the app will ask confirmation.",
-      "Use ISO dates when a deadline is clear. If a date is relative, infer from currentDate.",
-      "Do not invent members, phone numbers, leads, or tasks."
-    ].join("\n"),
-    prompt: JSON.stringify({
-      currentDate: new Date().toISOString(),
-      senderRole: params.senderRole,
-      senderMember: member ? { id: member.id, name: member.name, phone: member.phone, role: member.role } : undefined,
-      knownMembers: params.state.members.map((item) => ({ id: item.id, name: item.name, role: item.role, phone: item.phone })),
-      openTasks: openTasks.map((task) => ({
-        id: task.id,
-        memberId: task.memberId,
-        memberName: params.state.members.find((item) => item.id === task.memberId)?.name,
-        title: task.title,
-        deadline: task.deadline,
-        status: task.status
-      })),
-      recentMessages,
-      latestMessage: params.body
-    })
-  });
+  try {
+    const { output } = await generateText({
+      model,
+      output: Output.object({ schema: conversationIntentSchema }),
+      system: [
+        "You are a WhatsApp operations agent for a small Sri Lankan team.",
+        "Classify the latest message conversation-wise before any action is taken.",
+        "Return only one intent and structured fields needed by the app.",
+        "Questions must be classified as query intents, not as task updates.",
+        "Member questions like 'what are my tasks' are list_my_tasks.",
+        "Admin questions like 'what are open tasks' are list_open_tasks.",
+        "Admin questions like 'what are this week's tasks for each member' are list_open_tasks.",
+        "Admin requests to show tasks for all members are list_open_tasks.",
+        "Admin questions like 'what did laski reply' are get_member_latest_reply.",
+        "Reminder requests are send_reminder.",
+        "Deletion or risky changes must be classified, but the app will ask confirmation.",
+        "Use ISO dates when a deadline is clear. If a date is relative, infer from currentDate.",
+        "Do not invent members, phone numbers, leads, or tasks."
+      ].join("\n"),
+      prompt: JSON.stringify({
+        currentDate: new Date().toISOString(),
+        senderRole: params.senderRole,
+        senderMember: member ? { id: member.id, name: member.name, phone: member.phone, role: member.role } : undefined,
+        knownMembers: params.state.members.map((item) => ({ id: item.id, name: item.name, role: item.role, phone: item.phone })),
+        openTasks: openTasks.map((task) => ({
+          id: task.id,
+          memberId: task.memberId,
+          memberName: params.state.members.find((item) => item.id === task.memberId)?.name,
+          title: task.title,
+          deadline: task.deadline,
+          status: task.status
+        })),
+        recentMessages,
+        latestMessage: params.body
+      })
+    });
 
-  return completeConversationIntent(output, params);
+    return completeConversationIntent(output, params);
+  } catch (error) {
+    console.error("[ai:classify:fallback]", error);
+    return completeConversationIntent(classifyConversationHeuristic(params), params);
+  }
 }
 
 function completeConversationIntent(
@@ -328,34 +333,43 @@ export async function interpretMemberReply(memberId: string, body: string, state
   const priorMemory = state.memories.find((memory) => memory.memberId === memberId)?.summary || "";
 
   if (!hasGeminiKey()) {
-    const lowered = body.toLowerCase();
-    const status: TaskStatus = lowered.includes("block") ? "blocked" : lowered.includes("done") ? "done" : "in_progress";
-    return {
-      taskUpdates: openTasks[0] ? [{ taskId: openTasks[0].id, status, note: body }] : [],
-      leadUpdates: [],
-      memorySummary: priorMemory || "Member replies are being stored; AI memory needs GOOGLE_GENERATIVE_AI_API_KEY for summaries."
-    };
+    return interpretMemberReplyHeuristic(body, openTasks, priorMemory);
   }
 
-  const { output } = await generateText({
-    model,
-    output: Output.object({ schema: memberReplySchema }),
-    system: [
-      "You interpret WhatsApp replies from team members.",
-      "Match replies only to the listed open tasks and leads.",
-      "When unclear, leave taskId or leadId empty and include a title/name hint.",
-      "Keep memory concise and useful for future follow-ups."
-    ].join("\n"),
-    prompt: JSON.stringify({
-      currentDate: new Date().toISOString(),
-      priorMemory,
-      openTasks,
-      openLeads,
-      reply: body
-    })
-  });
+  try {
+    const { output } = await generateText({
+      model,
+      output: Output.object({ schema: memberReplySchema }),
+      system: [
+        "You interpret WhatsApp replies from team members.",
+        "Match replies only to the listed open tasks and leads.",
+        "When unclear, leave taskId or leadId empty and include a title/name hint.",
+        "Keep memory concise and useful for future follow-ups."
+      ].join("\n"),
+      prompt: JSON.stringify({
+        currentDate: new Date().toISOString(),
+        priorMemory,
+        openTasks,
+        openLeads,
+        reply: body
+      })
+    });
 
-  return output;
+    return output;
+  } catch (error) {
+    console.error("[ai:member-reply:fallback]", error);
+    return interpretMemberReplyHeuristic(body, openTasks, priorMemory);
+  }
+}
+
+function interpretMemberReplyHeuristic(body: string, openTasks: AppState["tasks"], priorMemory: string): MemberReplyInterpretation {
+  const lowered = body.toLowerCase();
+  const status: TaskStatus = lowered.includes("block") ? "blocked" : lowered.includes("done") ? "done" : "in_progress";
+  return {
+    taskUpdates: openTasks[0] ? [{ taskId: openTasks[0].id, status, note: body }] : [],
+    leadUpdates: [],
+    memorySummary: priorMemory || "Member replies are being stored; AI memory needs GOOGLE_GENERATIVE_AI_API_KEY for summaries."
+  };
 }
 
 export function parseAdminMessageHeuristic(body: string): AdminIntent {
@@ -367,6 +381,9 @@ export function parseAdminMessageHeuristic(body: string): AdminIntent {
       ...addMemberFields
     };
   }
+
+  const taskAssignment = extractTaskAssignmentFields(text);
+  if (taskAssignment) return taskAssignment;
 
   const addMember = text.match(/add\s+(?:(?:member|memeber)\s+)?([a-zA-Z ]+?)\s+(whatsapp:\+?\d+|\+?\d+)(?:\s+(?:as\s+)?([a-zA-Z]+))?$/i);
   if (addMember) {
@@ -440,6 +457,29 @@ export function parseAdminMessageHeuristic(body: string): AdminIntent {
   }
 
   return { intent: "unknown", message: text };
+}
+
+function extractTaskAssignmentFields(text: string): AdminIntent | undefined {
+  const header = text.match(/\btasks?\s+for\s+([a-zA-Z ]+)(?:[:\n]|$)/i);
+  if (!header || header.index === undefined) return undefined;
+
+  const memberName = header[1].trim();
+  const taskText = text.slice(header.index + header[0].length).trim();
+  if (!memberName || !taskText) return undefined;
+
+  const tasks = parseTaskList(taskText).map((task) => ({
+    memberName,
+    title: task.title,
+    deadline: task.deadline
+  }));
+
+  if (!tasks.length) return undefined;
+
+  return {
+    intent: "add_task",
+    task: tasks[0],
+    tasks
+  };
 }
 
 function parseTaskTitleAndDeadline(input: string) {
