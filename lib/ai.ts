@@ -127,7 +127,7 @@ export async function classifyConversationMessage(params: {
   state: AppState;
   memberId?: string;
 }): Promise<ConversationIntent> {
-  if (!hasGeminiKey()) return classifyConversationHeuristic(params);
+  if (!hasGeminiKey()) return completeConversationIntent(classifyConversationHeuristic(params), params);
 
   const member = params.memberId ? params.state.members.find((item) => item.id === params.memberId) : undefined;
   const openTasks = params.state.tasks.filter((task) => !["done", "cancelled"].includes(task.status));
@@ -174,7 +174,76 @@ export async function classifyConversationMessage(params: {
     })
   });
 
-  return output;
+  return completeConversationIntent(output, params);
+}
+
+function completeConversationIntent(
+  intent: ConversationIntent,
+  params: {
+    senderRole: "admin" | "member";
+    body: string;
+    state: AppState;
+    memberId?: string;
+  }
+): ConversationIntent {
+  if (params.senderRole !== "admin") return intent;
+
+  const memberFields = extractAddMemberFields(params.body);
+  if (!memberFields) return intent;
+
+  const shouldUseMemberFields = intent.intent === "add_member" || intent.intent === "unknown" || looksLikeAddMemberRequest(params.body);
+  if (!shouldUseMemberFields) return intent;
+
+  return {
+    ...intent,
+    senderRole: "admin",
+    intent: "add_member",
+    targetMemberName: intent.targetMemberName || memberFields.targetMemberName,
+    memberPhone: intent.memberPhone || memberFields.memberPhone,
+    memberRole: intent.memberRole || memberFields.memberRole,
+    confidence: Math.max(intent.confidence || 0, 0.9)
+  };
+}
+
+function looksLikeAddMemberRequest(text: string) {
+  return /\badd\b/i.test(text) && /\bmember|memeber|whatsapp:\s*\+?\d|\+\d/i.test(text);
+}
+
+function extractAddMemberFields(text: string): Pick<AdminIntent, "targetMemberName" | "memberPhone" | "memberRole"> | undefined {
+  if (!looksLikeAddMemberRequest(text)) return undefined;
+
+  const phoneMatch = text.match(/(?:whatsapp:\s*)?\+?\d[\d\s-]{7,}\d/i);
+  if (!phoneMatch || phoneMatch.index === undefined) return undefined;
+
+  const memberPhone = cleanupPhone(phoneMatch[0]);
+  const beforePhone = text.slice(0, phoneMatch.index);
+  const targetMemberName = cleanupMemberName(beforePhone);
+  if (!targetMemberName) return undefined;
+
+  const afterPhone = text.slice(phoneMatch.index + phoneMatch[0].length);
+  const roleMatch = afterPhone.match(/\b(?:as|role)\s+([a-zA-Z]+)\b/i);
+
+  return {
+    targetMemberName,
+    memberPhone,
+    memberRole: roleMatch?.[1]?.toLowerCase()
+  };
+}
+
+function cleanupPhone(input: string) {
+  const compact = input.replace(/\s+/g, "").replace(/-/g, "");
+  return compact.replace(/^whatsapp:\s*/i, "whatsapp:");
+}
+
+function cleanupMemberName(input: string) {
+  return input
+    .replace(/[:,-]+/g, " ")
+    .split(/\s+/)
+    .map((word) => word.trim())
+    .filter(Boolean)
+    .filter((word) => !/^(please|pls|send|add|new|member|members|memeber|to|the|a|an)$/i.test(word))
+    .join(" ")
+    .trim();
 }
 
 function classifyConversationHeuristic(params: {
@@ -291,6 +360,14 @@ export async function interpretMemberReply(memberId: string, body: string, state
 
 export function parseAdminMessageHeuristic(body: string): AdminIntent {
   const text = body.trim();
+  const addMemberFields = extractAddMemberFields(text);
+  if (addMemberFields) {
+    return {
+      intent: "add_member",
+      ...addMemberFields
+    };
+  }
+
   const addMember = text.match(/add\s+(?:(?:member|memeber)\s+)?([a-zA-Z ]+?)\s+(whatsapp:\+?\d+|\+?\d+)(?:\s+(?:as\s+)?([a-zA-Z]+))?$/i);
   if (addMember) {
     return {
