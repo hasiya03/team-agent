@@ -6,7 +6,7 @@ import type { AppState, LeadStatus, TaskStatus } from "@/lib/types";
 const model = google(process.env.GEMINI_MODEL || "gemini-3.1-flash-lite");
 
 const adminIntentSchema = z.object({
-  intent: z.enum(["add_member", "weekly_plan", "lead_assignment", "status_query", "broadcast", "unknown"]),
+  intent: z.enum(["add_member", "add_task", "weekly_plan", "lead_assignment", "status_query", "broadcast", "unknown"]),
   targetMemberName: z.string().optional(),
   memberPhone: z.string().optional(),
   memberRole: z.string().optional(),
@@ -30,6 +30,14 @@ const adminIntentSchema = z.object({
         description: z.string().optional()
       })
     )
+    .optional(),
+  task: z
+    .object({
+      memberName: z.string(),
+      title: z.string(),
+      deadline: z.string().optional(),
+      description: z.string().optional()
+    })
     .optional()
 });
 
@@ -64,6 +72,7 @@ function hasGeminiKey() {
 
 export async function parseAdminMessage(body: string, state: AppState): Promise<AdminIntent> {
   const heuristic = parseAdminMessageHeuristic(body);
+  if (heuristic.intent !== "unknown") return heuristic;
   if (!hasGeminiKey()) return heuristic;
 
   const { output } = await generateText({
@@ -123,13 +132,26 @@ export async function interpretMemberReply(memberId: string, body: string, state
 
 export function parseAdminMessageHeuristic(body: string): AdminIntent {
   const text = body.trim();
-  const addMember = text.match(/add\s+member\s+([a-zA-Z ]+)\s+(whatsapp:\+?\d+|\+?\d+)(?:\s+([a-zA-Z]+))?/i);
+  const addMember = text.match(/add\s+(?:(?:member|memeber)\s+)?([a-zA-Z ]+?)\s+(whatsapp:\+?\d+|\+?\d+)(?:\s+(?:as\s+)?([a-zA-Z]+))?$/i);
   if (addMember) {
     return {
       intent: "add_member",
       targetMemberName: addMember[1].trim(),
       memberPhone: addMember[2],
       memberRole: addMember[3]?.toLowerCase()
+    };
+  }
+
+  const directTask = text.match(/^(?:weekly\s+)?task\s+for\s+([a-zA-Z ]+)\s*:\s*(.+)$/i);
+  if (directTask) {
+    const parsed = parseTaskTitleAndDeadline(directTask[2].trim());
+    return {
+      intent: "add_task",
+      task: {
+        memberName: directTask[1].trim(),
+        title: parsed.title,
+        deadline: parsed.deadline
+      }
     };
   }
 
@@ -169,9 +191,11 @@ export function parseAdminMessageHeuristic(body: string): AdminIntent {
         continue;
       }
       if (currentMember && /^[-*]/.test(line)) {
+        const parsed = parseTaskTitleAndDeadline(line.replace(/^[-*]\s*/, ""));
         tasks.push({
           memberName: currentMember,
-          title: line.replace(/^[-*]\s*/, "")
+          title: parsed.title,
+          deadline: parsed.deadline
         });
       }
     }
@@ -179,6 +203,49 @@ export function parseAdminMessageHeuristic(body: string): AdminIntent {
   }
 
   return { intent: "unknown", message: text };
+}
+
+function parseTaskTitleAndDeadline(input: string) {
+  const deadlineMatch = input.match(/\bby\s+(.+)$/i);
+  if (!deadlineMatch) return { title: input };
+
+  return {
+    title: input.slice(0, deadlineMatch.index).trim(),
+    deadline: normalizeDeadline(deadlineMatch[1].trim())
+  };
+}
+
+function normalizeDeadline(input: string) {
+  const lowered = input.toLowerCase().replace(/[^\w\s-]/g, "").trim();
+  const weekday = matchWeekday(lowered);
+  if (weekday !== undefined) return nextWeekdayIso(weekday);
+
+  const parsed = new Date(input);
+  if (!Number.isNaN(parsed.getTime())) return parsed.toISOString();
+
+  return undefined;
+}
+
+function matchWeekday(input: string) {
+  const weekdays = [
+    ["sun", "sunday"],
+    ["mon", "monday"],
+    ["tue", "tues", "tuesday"],
+    ["wed", "weds", "wednes", "wednesday"],
+    ["thu", "thur", "thurs", "thursday"],
+    ["fri", "friday"],
+    ["sat", "saturday"]
+  ];
+  return weekdays.findIndex((aliases) => aliases.includes(input));
+}
+
+function nextWeekdayIso(targetDay: number) {
+  const date = new Date();
+  const currentDay = date.getDay();
+  const daysToAdd = (targetDay - currentDay + 7) % 7 || 7;
+  date.setDate(date.getDate() + daysToAdd);
+  date.setHours(9, 0, 0, 0);
+  return date.toISOString();
 }
 
 export function matchStatus(input: string): TaskStatus | LeadStatus {

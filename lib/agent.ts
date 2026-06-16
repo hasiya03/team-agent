@@ -98,7 +98,7 @@ async function handleAdminMessage(adminPhone: string, body: string) {
 
   if (intent.intent === "add_member") {
     if (!intent.targetMemberName || !intent.memberPhone) {
-      return "Please send: Add member Name whatsapp:+947XXXXXXXX role";
+      return "Please send: Add Name whatsapp:+947XXXXXXXX";
     }
     const member = await addMember({
       name: intent.targetMemberName,
@@ -107,7 +107,32 @@ async function handleAdminMessage(adminPhone: string, body: string) {
       timezone: process.env.AGENT_TIMEZONE || "Asia/Colombo",
       preferredReminderHour: 9
     });
-    return `Added ${member.name} as ${member.role}.`;
+    return `Added ${member.name}.`;
+  }
+
+  if (intent.intent === "add_task" && intent.task) {
+    const member = await findMemberByName(intent.task.memberName);
+    if (!member) {
+      return `I could not find a member named ${intent.task.memberName}. Add them first with: Add ${intent.task.memberName} whatsapp:+947XXXXXXXX`;
+    }
+
+    const [task] = await addTasks([
+      {
+        memberId: member.id,
+        title: intent.task.title,
+        deadline: intent.task.deadline,
+        description: intent.task.description
+      }
+    ]);
+
+    await sendWhatsApp(member.phone, taskBreakdownMessage(member, [task]));
+
+    return [
+      `Saved 1 task for ${member.name}.`,
+      `Task: ${task.title}`,
+      task.deadline ? `Deadline: ${new Date(task.deadline).toLocaleDateString("en-LK", { weekday: "long", month: "short", day: "numeric" })}` : "Deadline: not set",
+      "I also sent the task to the member."
+    ].join("\n");
   }
 
   if (intent.intent === "weekly_plan" && intent.weeklyTasks?.length) {
@@ -175,7 +200,8 @@ async function handleAdminMessage(adminPhone: string, body: string) {
     "I did not understand that admin command.",
     "",
     "Try:",
-    "Add member Amal whatsapp:+947XXXXXXXX marketing",
+    "Add Amal whatsapp:+947XXXXXXXX",
+    "Weekly task for Amal: Contact 5 leads by Friday",
     "Weekly tasks: ...",
     "Lead for Amal: ...",
     "Show today"
@@ -342,6 +368,7 @@ function nextReminderTime(hour: number) {
 
 function normalizeRole(role?: string): MemberRole {
   const lowered = role?.toLowerCase();
+  if (lowered === "developer") return "development";
   if (lowered === "admin" || lowered === "marketing" || lowered === "operations" || lowered === "design" || lowered === "development") {
     return lowered;
   }

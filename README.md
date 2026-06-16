@@ -44,6 +44,14 @@ Add member Amal whatsapp:+94771234567 marketing
 ```
 
 ```text
+Add Amal whatsapp:+94771234567
+```
+
+```text
+Add Lasandu whatsapp:+94714565278 Developer
+```
+
+```text
 Weekly tasks:
 Amal:
 - Contact 10 leads by Friday
@@ -51,6 +59,10 @@ Amal:
 
 Hasin:
 - Finish landing page by Wednesday
+```
+
+```text
+Weekly task for Amal: Develop frontend of Berl by Wednesday
 ```
 
 ```text
