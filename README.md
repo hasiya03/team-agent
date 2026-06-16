@@ -66,6 +66,10 @@ Weekly task for Amal: Develop frontend of Berl by Wednesday
 ```
 
 ```text
+Weekly task for Amal: need 02 social posts and also need to design a Berl logo by Wednesday
+```
+
+```text
 Lead for Amal:
 Cafe Green Leaf https://maps.google.com/...
 Ask him to contact them for marketing.

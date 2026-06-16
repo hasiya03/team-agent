@@ -38,6 +38,16 @@ const adminIntentSchema = z.object({
       deadline: z.string().optional(),
       description: z.string().optional()
     })
+    .optional(),
+  tasks: z
+    .array(
+      z.object({
+        memberName: z.string(),
+        title: z.string(),
+        deadline: z.string().optional(),
+        description: z.string().optional()
+      })
+    )
     .optional()
 });
 
@@ -144,14 +154,15 @@ export function parseAdminMessageHeuristic(body: string): AdminIntent {
 
   const directTask = text.match(/^(?:weekly\s+)?task\s+for\s+([a-zA-Z ]+)\s*:\s*(.+)$/i);
   if (directTask) {
-    const parsed = parseTaskTitleAndDeadline(directTask[2].trim());
+    const tasks = parseTaskList(directTask[2].trim()).map((task) => ({
+      memberName: directTask[1].trim(),
+      title: task.title,
+      deadline: task.deadline
+    }));
     return {
       intent: "add_task",
-      task: {
-        memberName: directTask[1].trim(),
-        title: parsed.title,
-        deadline: parsed.deadline
-      }
+      task: tasks[0],
+      tasks
     };
   }
 
@@ -213,6 +224,56 @@ function parseTaskTitleAndDeadline(input: string) {
     title: input.slice(0, deadlineMatch.index).trim(),
     deadline: normalizeDeadline(deadlineMatch[1].trim())
   };
+}
+
+function parseTaskList(input: string) {
+  const sharedDeadline = extractSharedDeadline(input);
+  const body = sharedDeadline.title;
+  const chunks = splitTaskChunks(body);
+  const parsed = chunks.map((chunk) => parseTaskTitleAndDeadline(chunk));
+  const tasks = parsed.map((task) => ({
+    title: cleanupTaskTitle(task.title),
+    deadline: task.deadline || sharedDeadline.deadline
+  }));
+  return tasks.filter((task) => task.title.length > 0);
+}
+
+function extractSharedDeadline(input: string) {
+  const deadlineMatch = input.match(/\bby\s+(.+)$/i);
+  if (!deadlineMatch) return { title: input };
+
+  return {
+    title: input.slice(0, deadlineMatch.index).trim(),
+    deadline: normalizeDeadline(deadlineMatch[1].trim())
+  };
+}
+
+function splitTaskChunks(input: string) {
+  const numbered = input
+    .split(/\s*(?:\d+[\).]|[-*])\s+/)
+    .map((chunk) => chunk.trim())
+    .filter(Boolean);
+  if (numbered.length > 1) return numbered;
+
+  return input
+    .split(/\s+(?:and\s+also|also\s+need(?:s)?\s+to|also\s+need(?:s)?|plus|,\s*and)\s+/i)
+    .map((chunk) => chunk.trim())
+    .filter(Boolean);
+}
+
+function cleanupTaskTitle(input: string) {
+  let title = input
+    .replace(/^(?:need(?:s)?\s+(?:to\s+)?|to\s+|also\s+)/i, "")
+    .replace(/\b02\b/g, "2")
+    .trim();
+
+  if (/^2\s+social\s+posts?$/i.test(title)) {
+    title = "design 2 social media posts";
+  } else if (/^social\s+posts?$/i.test(title)) {
+    title = "design social media posts";
+  }
+
+  return title;
 }
 
 function normalizeDeadline(input: string) {

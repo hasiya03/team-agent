@@ -110,28 +110,36 @@ async function handleAdminMessage(adminPhone: string, body: string) {
     return `Added ${member.name}.`;
   }
 
-  if (intent.intent === "add_task" && intent.task) {
-    const member = await findMemberByName(intent.task.memberName);
+  if (intent.intent === "add_task" && (intent.tasks?.length || intent.task)) {
+    const taskItems = intent.tasks?.length ? intent.tasks : intent.task ? [intent.task] : [];
+    const memberName = taskItems[0]?.memberName;
+    if (!memberName) return "Please include who the task is for.";
+
+    const member = await findMemberByName(memberName);
     if (!member) {
-      return `I could not find a member named ${intent.task.memberName}. Add them first with: Add ${intent.task.memberName} whatsapp:+947XXXXXXXX`;
+      return `I could not find a member named ${memberName}. Add them first with: Add ${memberName} whatsapp:+947XXXXXXXX`;
     }
 
-    const [task] = await addTasks([
-      {
+    const tasks = await addTasks(
+      taskItems.map((taskItem) => ({
         memberId: member.id,
-        title: intent.task.title,
-        deadline: intent.task.deadline,
-        description: intent.task.description
-      }
-    ]);
+        title: taskItem.title,
+        deadline: taskItem.deadline,
+        description: taskItem.description
+      }))
+    );
 
-    await sendWhatsApp(member.phone, taskBreakdownMessage(member, [task]));
+    await sendWhatsApp(member.phone, taskBreakdownMessage(member, tasks));
 
     return [
-      `Saved 1 task for ${member.name}.`,
-      `Task: ${task.title}`,
-      task.deadline ? `Deadline: ${new Date(task.deadline).toLocaleDateString("en-LK", { weekday: "long", month: "short", day: "numeric" })}` : "Deadline: not set",
-      "I also sent the task to the member."
+      `Saved ${tasks.length} task(s) for ${member.name}.`,
+      ...tasks.map((task, index) => {
+        const deadline = task.deadline
+          ? new Date(task.deadline).toLocaleDateString("en-LK", { weekday: "long", month: "short", day: "numeric" })
+          : "not set";
+        return `${index + 1}. ${task.title} - ${deadline}`;
+      }),
+      "I also sent the task breakdown to the member."
     ].join("\n");
   }
 
