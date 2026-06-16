@@ -219,10 +219,18 @@ async function handleMemberReply(memberId: string, body: string) {
   });
 
   if (!updatedTasks.length && !updatedLeads.length) {
-    return "Got your update. I saved the message, but I could not confidently match it to a task or lead.";
+    return [
+      "Got your update. I saved the message, but I could not confidently match it to a task or lead.",
+      "",
+      await remainingWorkMessage(memberId)
+    ].join("\n");
   }
 
-  return `Thanks ${member.name}. Updated ${updatedTasks.length} task(s) and ${updatedLeads.length} lead(s).`;
+  return [
+    `Thanks ${member.name}. Updated ${updatedTasks.length} task(s) and ${updatedLeads.length} lead(s).`,
+    "",
+    await remainingWorkMessage(memberId)
+  ].join("\n");
 }
 
 async function sendWeeklyBreakdowns(createdTasks: Task[]) {
@@ -297,6 +305,32 @@ async function sendManualReminders(target?: string) {
   ]
     .filter(Boolean)
     .join("\n");
+}
+
+async function remainingWorkMessage(memberId: string) {
+  const state = await readState();
+  const tasks = state.tasks.filter((task) => task.memberId === memberId && !["done", "cancelled"].includes(task.status));
+  const leads = state.leads.filter((lead) => lead.assignedToMemberId === memberId && !["closed", "not_interested"].includes(lead.status));
+
+  if (!tasks.length && !leads.length) {
+    return "You have no remaining open tasks or leads right now.";
+  }
+
+  const lines = ["Remaining work for this week:"];
+
+  if (tasks.length) {
+    lines.push("");
+    lines.push("Tasks:");
+    lines.push(...tasks.map((task, index) => `${index + 1}. ${task.title} - ${task.status.replace(/_/g, " ")}`));
+  }
+
+  if (leads.length) {
+    lines.push("");
+    lines.push("Leads:");
+    lines.push(...leads.map((lead, index) => `${index + 1}. ${lead.businessName} - ${lead.status.replace(/_/g, " ")}`));
+  }
+
+  return lines.join("\n");
 }
 
 function nextReminderTime(hour: number) {
