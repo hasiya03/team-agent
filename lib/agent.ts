@@ -252,8 +252,12 @@ async function handleMemberReply(memberId: string, body: string) {
     ].join("\n");
   }
 
+  const updateParts = [];
+  if (updatedTasks.length) updateParts.push(`${updatedTasks.length} task(s)`);
+  if (updatedLeads.length) updateParts.push(`${updatedLeads.length} lead(s)`);
+
   return [
-    `Thanks ${member.name}. Updated ${updatedTasks.length} task(s) and ${updatedLeads.length} lead(s).`,
+    `Thanks ${member.name}. Updated ${updateParts.join(" and ")}.`,
     "",
     await remainingWorkMessage(memberId)
   ].join("\n");
