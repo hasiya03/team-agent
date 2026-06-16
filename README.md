@@ -71,6 +71,8 @@ Bulk weekly plans ask the admin to reply `CONFIRM` before messages go out.
 
 The MVP uses a local JSON file at `.data/team-manager.json` so it works immediately. On Vercel, use a real database before production because serverless file storage is not durable.
 
+When deployed on Vercel without `DATA_DIR`, the app falls back to `/tmp/team-manager-agent` so webhooks do not crash on the read-only deployment filesystem. This is only temporary storage and can be reset by Vercel between function instances.
+
 ## Vercel Hobby Cron
 
 Vercel Hobby only allows cron jobs that run once per day. The included cron is set to `30 3 * * *`, which runs around 9:00 AM in Sri Lanka. Upgrade to Vercel Pro or use an external scheduler if you need reminders more than once per day.

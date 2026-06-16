@@ -1,4 +1,5 @@
 import { mkdir, readFile, writeFile } from "fs/promises";
+import os from "os";
 import path from "path";
 import type {
   AgentMessage,
@@ -13,7 +14,7 @@ import type {
 } from "@/lib/types";
 import { createId, isDue, nowIso, samePhone, startOfToday } from "@/lib/utils";
 
-const dataDir = path.join(process.cwd(), ".data");
+const dataDir = process.env.DATA_DIR || (process.env.VERCEL ? path.join(os.tmpdir(), "team-manager-agent") : path.join(process.cwd(), ".data"));
 const dataFile = path.join(dataDir, "team-manager.json");
 
 const emptyState: AppState = {
