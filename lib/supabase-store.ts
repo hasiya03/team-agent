@@ -210,7 +210,9 @@ export async function patchSupabaseTask(task: Task) {
   const { data, error } = await db
     .from("tasks")
     .update({
+      title: task.title,
       description: task.description || null,
+      deadline: task.deadline || null,
       status: task.status,
       updated_at: task.updatedAt
     })

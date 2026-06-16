@@ -99,6 +99,10 @@ export type PendingPayload =
       kind: "broadcast";
       memberIds: string[];
       body: string;
+    }
+  | {
+      kind: "delete_task";
+      taskId: string;
     };
 
 export interface AppState {

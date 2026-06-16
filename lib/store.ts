@@ -161,6 +161,24 @@ export async function updateTaskStatus(taskId: string, status: Task["status"], n
   return task;
 }
 
+export async function updateTask(taskId: string, patch: Partial<Pick<Task, "title" | "description" | "deadline" | "status">>) {
+  const state = await readState();
+  const task = state.tasks.find((item) => item.id === taskId);
+  if (!task) return undefined;
+  if (patch.title !== undefined) task.title = patch.title;
+  if (patch.description !== undefined) task.description = patch.description;
+  if (patch.deadline !== undefined) task.deadline = patch.deadline;
+  if (patch.status !== undefined) task.status = patch.status;
+  task.updatedAt = nowIso();
+  if (hasSupabaseConfig()) return patchSupabaseTask(task);
+  await writeState(state);
+  return task;
+}
+
+export async function deleteTask(taskId: string) {
+  return updateTask(taskId, { status: "cancelled" });
+}
+
 export async function addLead(lead: Omit<Lead, "id" | "createdAt" | "updatedAt" | "status"> & { status?: Lead["status"] }) {
   const state = await readState();
   const stored: Lead = {

@@ -1,5 +1,5 @@
 import type { Lead, MemberRole, Task } from "@/lib/types";
-import { parseAdminMessage, interpretMemberReply } from "@/lib/ai";
+import { classifyConversationMessage, interpretMemberReply, type ConversationIntent } from "@/lib/ai";
 import {
   addConfirmation,
   addLead,
@@ -7,12 +7,14 @@ import {
   addMessage,
   addReminder,
   addTasks,
+  deleteTask,
   findMemberByName,
   findMemberByPhone,
   hasReminderForDay,
   markMemberReplied,
   popLatestConfirmation,
   readState,
+  updateTask,
   updateLeadStatus,
   updateTaskStatus,
   upsertMemory
@@ -91,10 +93,27 @@ async function handleAdminMessage(adminPhone: string, body: string) {
       await Promise.all(members.map((member) => sendWhatsApp(member.phone, payload.body)));
       return `Confirmed. Sent broadcast to ${members.length} members.`;
     }
+
+    if (payload.kind === "delete_task") {
+      const state = await readState();
+      const task = state.tasks.find((item) => item.id === payload.taskId);
+      const member = task ? state.members.find((item) => item.id === task.memberId) : undefined;
+      const deleted = await deleteTask(payload.taskId);
+      if (!deleted) return "I could not find that task anymore.";
+      if (member) {
+        await sendWhatsApp(member.phone, `This task was removed:\n${deleted.title}`);
+      }
+      return `Removed task: ${deleted.title}${member ? ` from ${member.name}` : ""}.`;
+    }
+  }
+
+  if (/^cancel$/i.test(body.trim())) {
+    const confirmation = await popLatestConfirmation(adminPhone);
+    return confirmation ? "Cancelled the pending action." : "No active confirmation found.";
   }
 
   const state = await readState();
-  const intent = await parseAdminMessage(body, state);
+  const intent = await classifyConversationMessage({ senderRole: "admin", body, state });
 
   if (intent.intent === "add_member") {
     if (!intent.targetMemberName || !intent.memberPhone) {
@@ -204,6 +223,30 @@ async function handleAdminMessage(adminPhone: string, body: string) {
     return summarizeStatus(await readState(), body);
   }
 
+  if (intent.intent === "list_open_tasks") {
+    return listOpenTasks(await readState());
+  }
+
+  if (intent.intent === "list_member_tasks") {
+    return listMemberTasks(await readState(), intent.targetMemberName);
+  }
+
+  if (intent.intent === "send_reminder") {
+    return sendManualReminders(intent.targetMemberName || "all");
+  }
+
+  if (intent.intent === "get_member_latest_reply") {
+    return latestMemberReply(await readState(), intent.targetMemberName);
+  }
+
+  if (intent.intent === "set_task_deadline") {
+    return setTaskDeadline(await readState(), intent);
+  }
+
+  if (intent.intent === "delete_task") {
+    return confirmTaskDeletion(adminPhone, await readState(), intent);
+  }
+
   return [
     "I did not understand that admin command.",
     "",
@@ -222,6 +265,16 @@ async function handleMemberReply(memberId: string, body: string) {
   if (!member) return "Member not found.";
 
   await markMemberReplied(memberId);
+  const intent = await classifyConversationMessage({ senderRole: "member", body, state, memberId });
+
+  if (intent.intent === "list_my_tasks") {
+    return remainingWorkMessage(memberId);
+  }
+
+  if (intent.intent !== "member_status_update" && intent.intent !== "unknown") {
+    return remainingWorkMessage(memberId);
+  }
+
   const interpretation = await interpretMemberReply(memberId, body, state);
 
   const updatedTasks = [];
@@ -405,6 +458,141 @@ function summarizeStatus(state: Awaited<ReturnType<typeof readState>>, query = "
     `Open leads: ${openLeads.length}`,
     `Replied today: ${repliedToday.length ? repliedToday.join(", ") : "Nobody yet"}`
   ].join("\n");
+}
+
+function listOpenTasks(state: Awaited<ReturnType<typeof readState>>) {
+  const openTasks = state.tasks.filter((task) => !["done", "cancelled"].includes(task.status));
+  if (!openTasks.length) return "There are no open tasks right now.";
+
+  return [
+    "Open tasks:",
+    ...openTasks.map((task, index) => {
+      const member = state.members.find((item) => item.id === task.memberId);
+      return `${index + 1}. ${member?.name || "Unknown"} - ${task.title} - ${task.status.replace(/_/g, " ")}${formatDeadline(task.deadline)}`;
+    })
+  ].join("\n");
+}
+
+function listMemberTasks(state: Awaited<ReturnType<typeof readState>>, memberName?: string) {
+  if (!memberName) return "Which member should I show tasks for?";
+  const member = findMemberInState(state, memberName);
+  if (!member) return `I could not find a member named ${memberName}.`;
+
+  const tasks = state.tasks.filter((task) => task.memberId === member.id && !["done", "cancelled"].includes(task.status));
+  if (!tasks.length) return `${member.name} has no open tasks right now.`;
+
+  return [
+    `${member.name}'s open tasks:`,
+    ...tasks.map((task, index) => `${index + 1}. ${task.title} - ${task.status.replace(/_/g, " ")}${formatDeadline(task.deadline)}`)
+  ].join("\n");
+}
+
+function latestMemberReply(state: Awaited<ReturnType<typeof readState>>, memberName?: string) {
+  if (!memberName) return "Which member's latest reply should I check?";
+  const member = findMemberInState(state, memberName);
+  if (!member) return `I could not find a member named ${memberName}.`;
+
+  const latestReply = state.messages.find((message) => message.direction === "inbound" && samePhone(message.from, member.phone));
+  if (!latestReply) return `No reply received from ${member.name} yet.`;
+  return [`Latest reply from ${member.name}:`, latestReply.body].join("\n");
+}
+
+async function setTaskDeadline(state: Awaited<ReturnType<typeof readState>>, intent: ConversationIntent) {
+  if (!intent.deadline) return "What deadline should I set?";
+
+  const task = findSingleTask(state, intent);
+  if (Array.isArray(task)) {
+    return [
+      "I found multiple matching tasks. Which one do you mean?",
+      ...task.map((item, index) => {
+        const member = state.members.find((memberItem) => memberItem.id === item.memberId);
+        return `${index + 1}. ${member?.name || "Unknown"} - ${item.title}${formatDeadline(item.deadline)}`;
+      })
+    ].join("\n");
+  }
+
+  if (!task) return "I could not find the task to update. Try naming the member and part of the task.";
+
+  const updated = await updateTask(task.id, { deadline: intent.deadline });
+  if (!updated) return "I could not update that task.";
+
+  const member = state.members.find((item) => item.id === updated.memberId);
+  if (member) {
+    await sendWhatsApp(member.phone, `Deadline updated:\n${updated.title}\nDue: ${formatDate(updated.deadline)}`);
+  }
+
+  return `Deadline updated: ${member?.name || "Unknown"} - ${updated.title}\nDue: ${formatDate(updated.deadline)}`;
+}
+
+async function confirmTaskDeletion(adminPhone: string, state: Awaited<ReturnType<typeof readState>>, intent: ConversationIntent) {
+  const task = findSingleTask(state, intent);
+  if (Array.isArray(task)) {
+    return [
+      "I found multiple matching tasks. Which one should be removed?",
+      ...task.map((item, index) => {
+        const member = state.members.find((memberItem) => memberItem.id === item.memberId);
+        return `${index + 1}. ${member?.name || "Unknown"} - ${item.title}${formatDeadline(item.deadline)}`;
+      })
+    ].join("\n");
+  }
+
+  if (!task) return "I could not find the task to remove. Try naming the member and part of the task.";
+
+  const member = state.members.find((item) => item.id === task.memberId);
+  const summary = [
+    "Remove this task?",
+    "",
+    `${member?.name || "Unknown"} - ${task.title}`,
+    `Status: ${task.status.replace(/_/g, " ")}`,
+    `Due: ${formatDate(task.deadline)}`,
+    "",
+    "Reply CONFIRM to remove it, or CANCEL."
+  ].join("\n");
+
+  await addConfirmation({
+    adminPhone,
+    summary,
+    expiresAt: addDays(new Date(), 1).toISOString(),
+    payload: {
+      kind: "delete_task",
+      taskId: task.id
+    }
+  });
+
+  return summary;
+}
+
+function findSingleTask(state: Awaited<ReturnType<typeof readState>>, intent: ConversationIntent) {
+  const openTasks = state.tasks.filter((task) => !["done", "cancelled"].includes(task.status));
+  if (intent.taskId) return openTasks.find((task) => task.id === intent.taskId);
+
+  const member = intent.targetMemberName ? findMemberInState(state, intent.targetMemberName) : undefined;
+  const hint = (intent.taskTitleHint || intent.task?.title || intent.message || "").toLowerCase();
+  const candidates = openTasks.filter((task) => {
+    if (member && task.memberId !== member.id) return false;
+    if (!hint) return true;
+    return task.title.toLowerCase().includes(hint) || hint.includes(task.title.toLowerCase());
+  });
+
+  if (candidates.length === 1) return candidates[0];
+  if (candidates.length > 1) return candidates.slice(0, 5);
+  return undefined;
+}
+
+function findMemberInState(state: Awaited<ReturnType<typeof readState>>, name: string) {
+  const normalized = name.trim().toLowerCase();
+  return state.members.find((member) => member.name.toLowerCase() === normalized) || state.members.find((member) => member.name.toLowerCase().includes(normalized));
+}
+
+function formatDeadline(deadline?: string) {
+  return deadline ? ` - Due: ${formatDate(deadline)}` : "";
+}
+
+function formatDate(value?: string) {
+  if (!value) return "No deadline";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString("en-LK", { weekday: "long", month: "short", day: "numeric" });
 }
 
 function dailyAdminSummary(state: Awaited<ReturnType<typeof readState>>) {

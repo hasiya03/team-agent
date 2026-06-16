@@ -76,8 +76,147 @@ const memberReplySchema = z.object({
 
 export type MemberReplyInterpretation = z.infer<typeof memberReplySchema>;
 
+const conversationIntentSchema = z.object({
+  senderRole: z.enum(["admin", "member"]),
+  intent: z.enum([
+    "add_member",
+    "add_task",
+    "weekly_plan",
+    "lead_assignment",
+    "status_query",
+    "list_open_tasks",
+    "list_member_tasks",
+    "list_my_tasks",
+    "send_reminder",
+    "get_member_latest_reply",
+    "set_task_deadline",
+    "edit_task",
+    "delete_task",
+    "reassign_task",
+    "broadcast",
+    "confirm",
+    "cancel",
+    "member_status_update",
+    "unknown"
+  ]),
+  confidence: z.number().optional(),
+  targetMemberName: z.string().optional(),
+  memberPhone: z.string().optional(),
+  memberRole: z.string().optional(),
+  taskId: z.string().optional(),
+  taskTitleHint: z.string().optional(),
+  deadline: z.string().optional(),
+  status: z.enum(["todo", "in_progress", "blocked", "done", "cancelled"]).optional(),
+  message: z.string().optional(),
+  reply: z.string().optional(),
+  lead: adminIntentSchema.shape.lead,
+  task: adminIntentSchema.shape.task,
+  tasks: adminIntentSchema.shape.tasks,
+  weeklyTasks: adminIntentSchema.shape.weeklyTasks
+});
+
+export type ConversationIntent = z.infer<typeof conversationIntentSchema>;
+
 function hasGeminiKey() {
   return Boolean(process.env.GOOGLE_GENERATIVE_AI_API_KEY);
+}
+
+export async function classifyConversationMessage(params: {
+  senderRole: "admin" | "member";
+  body: string;
+  state: AppState;
+  memberId?: string;
+}): Promise<ConversationIntent> {
+  if (!hasGeminiKey()) return classifyConversationHeuristic(params);
+
+  const member = params.memberId ? params.state.members.find((item) => item.id === params.memberId) : undefined;
+  const openTasks = params.state.tasks.filter((task) => !["done", "cancelled"].includes(task.status));
+  const recentMessages = params.state.messages.slice(0, 20).map((message) => ({
+    direction: message.direction,
+    from: message.from,
+    body: message.body,
+    createdAt: message.createdAt
+  }));
+
+  const { output } = await generateText({
+    model,
+    output: Output.object({ schema: conversationIntentSchema }),
+    system: [
+      "You are a WhatsApp operations agent for a small Sri Lankan team.",
+      "Classify the latest message conversation-wise before any action is taken.",
+      "Return only one intent and structured fields needed by the app.",
+      "Questions must be classified as query intents, not as task updates.",
+      "Member questions like 'what are my tasks' are list_my_tasks.",
+      "Admin questions like 'what are open tasks' are list_open_tasks.",
+      "Admin questions like 'what did laski reply' are get_member_latest_reply.",
+      "Reminder requests are send_reminder.",
+      "Deletion or risky changes must be classified, but the app will ask confirmation.",
+      "Use ISO dates when a deadline is clear. If a date is relative, infer from currentDate.",
+      "Do not invent members, phone numbers, leads, or tasks."
+    ].join("\n"),
+    prompt: JSON.stringify({
+      currentDate: new Date().toISOString(),
+      senderRole: params.senderRole,
+      senderMember: member ? { id: member.id, name: member.name, phone: member.phone, role: member.role } : undefined,
+      knownMembers: params.state.members.map((item) => ({ id: item.id, name: item.name, role: item.role, phone: item.phone })),
+      openTasks: openTasks.map((task) => ({
+        id: task.id,
+        memberId: task.memberId,
+        memberName: params.state.members.find((item) => item.id === task.memberId)?.name,
+        title: task.title,
+        deadline: task.deadline,
+        status: task.status
+      })),
+      recentMessages,
+      latestMessage: params.body
+    })
+  });
+
+  return output;
+}
+
+function classifyConversationHeuristic(params: {
+  senderRole: "admin" | "member";
+  body: string;
+  state: AppState;
+  memberId?: string;
+}): ConversationIntent {
+  const text = params.body.trim();
+  if (/^confirm$/i.test(text)) return { senderRole: params.senderRole, intent: "confirm", confidence: 1 };
+  if (/^cancel$/i.test(text)) return { senderRole: params.senderRole, intent: "cancel", confidence: 1 };
+
+  if (params.senderRole === "member") {
+    if (/\b(my|weekly|open|remaining)\b.*\b(tasks?|work)\b|\bwhat\b.*\b(tasks?|work)\b/i.test(text)) {
+      return { senderRole: "member", intent: "list_my_tasks", confidence: 0.85, message: text };
+    }
+    return { senderRole: "member", intent: "member_status_update", confidence: 0.7, message: text };
+  }
+
+  const reminder = text.match(/\b(?:send\s+)?(?:remind(?:er)?|remaind?er)\s+(?:to\s+)?(all|[a-zA-Z ]+)?/i);
+  if (reminder) {
+    return { senderRole: "admin", intent: "send_reminder", targetMemberName: reminder[1]?.trim(), confidence: 0.8 };
+  }
+
+  const replyQuery = text.match(/\b(?:what(?:'s|s| is)?|show|get)\s+([a-zA-Z ]+)\s+(?:reply|said|update)/i);
+  if (replyQuery) {
+    return { senderRole: "admin", intent: "get_member_latest_reply", targetMemberName: replyQuery[1].trim(), confidence: 0.8 };
+  }
+
+  if (/\bopen\b.*\btasks?\b|\btasks?\b.*\bopen\b/i.test(text)) {
+    return { senderRole: "admin", intent: "list_open_tasks", confidence: 0.8, message: text };
+  }
+
+  const deadline = text.match(/\b(?:set|change|update)\s+(?:deadline|due)\b.*\b(?:for|to)\s+(.+)/i);
+  if (deadline) {
+    return { senderRole: "admin", intent: "set_task_deadline", message: text, confidence: 0.55 };
+  }
+
+  const heuristic = parseAdminMessageHeuristic(text);
+  if (heuristic.intent !== "unknown") {
+    return { senderRole: "admin", ...heuristic, confidence: 0.75 };
+  }
+
+  return { senderRole: "admin", intent: "unknown", message: text, confidence: 0.2 };
 }
 
 export async function parseAdminMessage(body: string, state: AppState): Promise<AdminIntent> {
