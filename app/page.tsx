@@ -3,6 +3,9 @@ import { getDashboardSnapshot } from "@/lib/store";
 import { formatDateHuman } from "@/lib/utils";
 import CommandTester from "@/app/ui/command-tester";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 export default async function Home() {
   const data = await getDashboardSnapshot();
   const membersById = new Map(data.members.map((member) => [member.id, member]));
