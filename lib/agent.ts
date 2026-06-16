@@ -168,7 +168,7 @@ async function handleAdminMessage(adminPhone: string, body: string) {
   }
 
   if (intent.intent === "status_query") {
-    return summarizeStatus(await readState());
+    return summarizeStatus(await readState(), body);
   }
 
   return [
@@ -348,7 +348,11 @@ function normalizeRole(role?: string): MemberRole {
   return "general";
 }
 
-function summarizeStatus(state: Awaited<ReturnType<typeof readState>>) {
+function summarizeStatus(state: Awaited<ReturnType<typeof readState>>, query = "") {
+  if (/daily|summary|update/i.test(query)) {
+    return dailyAdminSummary(state);
+  }
+
   const openTasks = state.tasks.filter((task) => !["done", "cancelled"].includes(task.status));
   const blocked = openTasks.filter((task) => task.status === "blocked");
   const openLeads = state.leads.filter((lead) => !["closed", "not_interested"].includes(lead.status));
@@ -362,4 +366,60 @@ function summarizeStatus(state: Awaited<ReturnType<typeof readState>>) {
     `Open leads: ${openLeads.length}`,
     `Replied today: ${repliedToday.length ? repliedToday.join(", ") : "Nobody yet"}`
   ].join("\n");
+}
+
+function dailyAdminSummary(state: Awaited<ReturnType<typeof readState>>) {
+  const today = new Date().toISOString().slice(0, 10);
+  const members = state.members.filter((member) => member.active && member.role !== "admin");
+  const lines = [`Daily update summary - ${today}`];
+  const noReplyToday: string[] = [];
+
+  for (const member of members) {
+    const memberTasks = state.tasks.filter((task) => task.memberId === member.id);
+    const openTasks = memberTasks.filter((task) => !["done", "cancelled"].includes(task.status));
+    const doneTasks = memberTasks.filter((task) => task.status === "done");
+    const blockedTasks = memberTasks.filter((task) => task.status === "blocked");
+    const memberLeads = state.leads.filter((lead) => lead.assignedToMemberId === member.id && !["closed"].includes(lead.status));
+    const latestReply = state.messages.find((message) => {
+      return message.direction === "inbound" && message.from.toLowerCase() === member.phone.toLowerCase();
+    });
+    const repliedToday = Boolean(member.lastReplyAt?.startsWith(today));
+    if (!repliedToday) noReplyToday.push(member.name);
+
+    lines.push("");
+    lines.push(`${member.name}${repliedToday ? " - replied today" : " - no reply today"}`);
+    lines.push(`Open: ${openTasks.length} | Done: ${doneTasks.length} | Blocked: ${blockedTasks.length} | Leads: ${memberLeads.length}`);
+
+    if (openTasks.length) {
+      lines.push("Open tasks:");
+      lines.push(...openTasks.slice(0, 5).map((task, index) => `${index + 1}. ${task.title} - ${task.status.replace(/_/g, " ")}`));
+      if (openTasks.length > 5) lines.push(`+${openTasks.length - 5} more open task(s)`);
+    }
+
+    if (blockedTasks.length) {
+      lines.push("Blocked:");
+      lines.push(...blockedTasks.slice(0, 3).map((task, index) => `${index + 1}. ${task.title}`));
+    }
+
+    if (memberLeads.length) {
+      const leadSummary = memberLeads.reduce<Record<string, number>>((counts, lead) => {
+        counts[lead.status] = (counts[lead.status] || 0) + 1;
+        return counts;
+      }, {});
+      lines.push(
+        `Lead status: ${Object.entries(leadSummary)
+          .map(([status, count]) => `${status.replace(/_/g, " ")} ${count}`)
+          .join(", ")}`
+      );
+    }
+
+    if (latestReply) {
+      lines.push(`Latest reply: ${latestReply.body.slice(0, 180)}${latestReply.body.length > 180 ? "..." : ""}`);
+    }
+  }
+
+  lines.push("");
+  lines.push(noReplyToday.length ? `No reply today: ${noReplyToday.join(", ")}` : "Everyone has replied today.");
+
+  return lines.join("\n");
 }
