@@ -8,7 +8,7 @@ export function taskBreakdownMessage(member: TeamMember, tasks: Task[]) {
     "",
     lines.join("\n\n"),
     "",
-    "I will check in daily. Reply with done, in progress, blocked, or a short update."
+    "I will check in daily. Reply with any short update. If something is done or blocked, just say that naturally."
   ].join("\n");
 }
 
@@ -21,7 +21,7 @@ export function dailyCheckinMessage(member: TeamMember, tasks: Task[], leads: Le
     taskLines.length ? "\nTasks:\n" + taskLines.join("\n") : "",
     leadLines.length ? "\nLeads:\n" + leadLines.join("\n") : "",
     "",
-    "Please reply with progress, done, blocked, contacted, interested, no answer, or follow-up date."
+    "Please reply with a short update. If something is done, blocked, contacted, interested, or needs follow-up, just say that naturally."
   ]
     .filter(Boolean)
     .join("\n");

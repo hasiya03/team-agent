@@ -365,7 +365,7 @@ async function handleMemberReply(memberId: string, body: string) {
       ? state.tasks.find((item) => item.id === update.taskId)
       : state.tasks.find((item) => item.memberId === memberId && item.title.toLowerCase().includes((update.taskTitleHint || "").toLowerCase()));
     if (task) {
-      const updated = await updateTaskStatus(task.id, update.status, update.note);
+      const updated = update.status ? await updateTaskStatus(task.id, update.status, update.note) : await appendTaskNote(task, update.note || body);
       if (updated) updatedTasks.push(updated);
     }
   }
@@ -396,14 +396,19 @@ async function handleMemberReply(memberId: string, body: string) {
   }
 
   const updateParts = [];
-  if (updatedTasks.length) updateParts.push(`${updatedTasks.length} task(s)`);
-  if (updatedLeads.length) updateParts.push(`${updatedLeads.length} lead(s)`);
+  if (updatedTasks.length) updateParts.push(`${updatedTasks.length} task update(s)`);
+  if (updatedLeads.length) updateParts.push(`${updatedLeads.length} lead update(s)`);
 
   return [
-    `Thanks ${member.name}. Updated ${updateParts.join(" and ")}.`,
+    `Thanks ${member.name}. Saved ${updateParts.join(" and ")}.`,
     "",
     await remainingWorkMessage(memberId)
   ].join("\n");
+}
+
+async function appendTaskNote(task: Task, note: string) {
+  const description = [task.description, `Update: ${note}`].filter(Boolean).join("\n");
+  return updateTask(task.id, { description });
 }
 
 async function sendWeeklyBreakdowns(createdTasks: Task[]) {

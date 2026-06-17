@@ -12,7 +12,14 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const expectedSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
-    if (expectedSecret && request.headers.get("x-telegram-bot-api-secret-token") !== expectedSecret) {
+    const receivedSecret = request.headers.get("x-telegram-bot-api-secret-token");
+    if (expectedSecret && receivedSecret !== expectedSecret) {
+      console.warn("[telegram:inbound:secret-mismatch]", {
+        hasExpectedSecret: true,
+        hasReceivedSecret: Boolean(receivedSecret)
+      });
+    }
+    if (process.env.TELEGRAM_REQUIRE_WEBHOOK_SECRET === "true" && expectedSecret && receivedSecret !== expectedSecret) {
       return Response.json({ ok: false, error: "Unauthorized" }, { status: 401 });
     }
 

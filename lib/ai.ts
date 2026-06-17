@@ -58,7 +58,7 @@ const memberReplySchema = z.object({
     z.object({
       taskId: z.string().optional(),
       taskTitleHint: z.string().optional(),
-      status: z.enum(["todo", "in_progress", "blocked", "done", "cancelled"]),
+      status: z.enum(["todo", "in_progress", "blocked", "done", "cancelled"]).optional(),
       note: z.string().optional()
     })
   ),
@@ -370,8 +370,11 @@ export async function interpretMemberReply(memberId: string, body: string, state
       model,
       output: Output.object({ schema: memberReplySchema }),
       system: [
-        "You interpret WhatsApp replies from team members.",
+        "You interpret short Telegram or WhatsApp replies from team members.",
         "Match replies only to the listed open tasks and leads.",
+        "Members may reply with normal short progress notes; do not require command words.",
+        "For a plain update note, match it to the most relevant task and include note without changing status.",
+        "Only set status when the member clearly says done, complete, blocked, stuck, in progress, started, or similar.",
         "When unclear, leave taskId or leadId empty and include a title/name hint.",
         "Keep memory concise and useful for future follow-ups."
       ].join("\n"),
@@ -393,7 +396,13 @@ export async function interpretMemberReply(memberId: string, body: string, state
 
 function interpretMemberReplyHeuristic(body: string, openTasks: AppState["tasks"], priorMemory: string): MemberReplyInterpretation {
   const lowered = body.toLowerCase();
-  const status: TaskStatus = lowered.includes("block") ? "blocked" : lowered.includes("done") ? "done" : "in_progress";
+  const status: TaskStatus | undefined = lowered.includes("block")
+    ? "blocked"
+    : lowered.includes("done") || lowered.includes("complete")
+      ? "done"
+      : lowered.includes("progress") || lowered.includes("started")
+        ? "in_progress"
+        : undefined;
   return {
     taskUpdates: openTasks[0] ? [{ taskId: openTasks[0].id, status, note: body }] : [],
     leadUpdates: [],
