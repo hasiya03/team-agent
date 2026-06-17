@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Send } from "lucide-react";
 
 export default function CommandTester() {
-  const [body, setBody] = useState("Add member Amal whatsapp:+94771234567 marketing");
+  const [body, setBody] = useState("Add member Amal telegram:123456789 marketing");
   const [reply, setReply] = useState("");
   const [loading, setLoading] = useState(false);
 

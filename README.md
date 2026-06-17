@@ -1,6 +1,6 @@
 # Team Manager Agent
 
-WhatsApp-first reminder agent for small teams. The admin sends weekly task breakdowns, marketing leads, and reminder commands to one Twilio WhatsApp number. The app parses the message, confirms important actions, sends each member their own instructions, collects replies, updates task/lead status, and shows everything in a dashboard.
+Telegram-first reminder agent for small teams, with optional Twilio WhatsApp support. The admin sends weekly task breakdowns, marketing leads, and reminder commands to one bot. The app parses the message, confirms important actions, sends each member their own instructions, collects replies, updates task/lead status, and shows everything in a dashboard.
 
 ## Setup
 
@@ -13,7 +13,11 @@ npm install
 2. Copy `.env.example` to `.env.local` and fill in:
 
 ```bash
-ADMIN_PHONE=whatsapp:+947XXXXXXXX
+ADMIN_PHONE=telegram:123456789
+TELEGRAM_ADMIN_CHAT_ID=123456789
+TELEGRAM_BOT_TOKEN=...
+TELEGRAM_BOT_USERNAME=your_bot_username
+TELEGRAM_WEBHOOK_SECRET=...
 TWILIO_ACCOUNT_SID=...
 TWILIO_AUTH_TOKEN=...
 TWILIO_WHATSAPP_FROM=whatsapp:+14155238886
@@ -29,18 +33,24 @@ SUPABASE_SERVICE_ROLE_KEY=...
 npm run dev
 ```
 
-4. Configure Twilio WhatsApp inbound webhook:
+4. Create a Telegram bot with `@BotFather`, copy the token, then configure the Telegram webhook:
+
+```text
+https://api.telegram.org/bot<TELEGRAM_BOT_TOKEN>/setWebhook?url=https://your-vercel-url.vercel.app/api/telegram/inbound&secret_token=<TELEGRAM_WEBHOOK_SECRET>
+```
+
+5. Optional: configure Twilio WhatsApp inbound webhook:
 
 ```text
 POST https://your-vercel-url.vercel.app/api/twilio/inbound
 ```
 
-For local testing, use a tunnel URL that points to `/api/twilio/inbound`.
+For local WhatsApp testing, use a tunnel URL that points to `/api/twilio/inbound`.
 
-## Admin WhatsApp Commands
+## Admin Telegram Messages
 
 ```text
-Add member Amal whatsapp:+94771234567 marketing
+Add member Amal telegram:123456789 marketing
 ```
 
 ```text
@@ -48,7 +58,13 @@ Add Amal whatsapp:+94771234567
 ```
 
 ```text
-Add Lasandu whatsapp:+94714565278 Developer
+Add Lasandu telegram:987654321 Developer
+```
+
+Members can link themselves after the admin has added their name:
+
+```text
+/start Amal
 ```
 
 ```text

@@ -1,7 +1,12 @@
 import twilio from "twilio";
 import { addMessage } from "@/lib/store";
+import { sendTelegramMessage } from "@/lib/telegram";
 
 export async function sendWhatsApp(to: string, body: string) {
+  if (to.toLowerCase().startsWith("telegram:")) {
+    return sendTelegramMessage(to, body);
+  }
+
   const from = process.env.TWILIO_WHATSAPP_FROM;
   const sid = process.env.TWILIO_ACCOUNT_SID;
   const token = process.env.TWILIO_AUTH_TOKEN;

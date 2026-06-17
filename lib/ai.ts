@@ -211,13 +211,13 @@ function completeConversationIntent(
 }
 
 function looksLikeAddMemberRequest(text: string) {
-  return /\badd\b/i.test(text) && /\bmember|memeber|whatsapp:\s*\+?\d|\+\d/i.test(text);
+  return /\badd\b/i.test(text) && /\bmember|memeber|telegram:\s*-?\d|whatsapp:\s*\+?\d|\+\d/i.test(text);
 }
 
 function extractAddMemberFields(text: string): Pick<AdminIntent, "targetMemberName" | "memberPhone" | "memberRole"> | undefined {
   if (!looksLikeAddMemberRequest(text)) return undefined;
 
-  const phoneMatch = text.match(/(?:whatsapp:\s*)?\+?\d[\d\s-]{7,}\d/i);
+  const phoneMatch = text.match(/telegram:\s*-?\d+|(?:whatsapp:\s*)?\+?\d[\d\s-]{7,}\d/i);
   if (!phoneMatch || phoneMatch.index === undefined) return undefined;
 
   const memberPhone = cleanupPhone(phoneMatch[0]);
@@ -236,6 +236,7 @@ function extractAddMemberFields(text: string): Pick<AdminIntent, "targetMemberNa
 }
 
 function cleanupPhone(input: string) {
+  if (input.trim().toLowerCase().startsWith("telegram:")) return input.replace(/\s+/g, "").toLowerCase();
   const compact = input.replace(/\s+/g, "").replace(/-/g, "");
   return compact.replace(/^whatsapp:\s*/i, "whatsapp:");
 }

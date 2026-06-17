@@ -10,6 +10,7 @@ export function createId(prefix: string) {
 
 export function normalizePhone(phone: string) {
   const trimmed = phone.trim();
+  if (trimmed.toLowerCase().startsWith("telegram:")) return trimmed;
   return trimmed.startsWith("whatsapp:") ? trimmed : `whatsapp:${trimmed}`;
 }
 
@@ -18,6 +19,7 @@ export function samePhone(a: string, b: string) {
 }
 
 export function getAdminPhone() {
+  if (process.env.TELEGRAM_ADMIN_CHAT_ID) return normalizePhone(`telegram:${process.env.TELEGRAM_ADMIN_CHAT_ID}`);
   if (process.env.ADMIN_PHONE) return normalizePhone(process.env.ADMIN_PHONE);
   if (process.env.NODE_ENV !== "production") return "whatsapp:+94700000000";
   return "";

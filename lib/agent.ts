@@ -21,6 +21,7 @@ import {
 } from "@/lib/store";
 import { dailyCheckinMessage, leadAssignmentMessage, taskBreakdownMessage } from "@/lib/messages";
 import { sendWhatsApp } from "@/lib/twilio";
+import { normalizeTelegramChatId } from "@/lib/telegram";
 import { addDays, getAdminPhone, normalizePhone, nowIso, samePhone } from "@/lib/utils";
 
 export async function handleIncomingWhatsApp(params: {
@@ -51,6 +52,83 @@ export async function handleIncomingWhatsApp(params: {
   }
 
   return handleMemberReply(member.id, params.body);
+}
+
+export async function handleIncomingTelegram(params: {
+  chatId: string | number;
+  text: string;
+  messageId?: string | number;
+  username?: string;
+  firstName?: string;
+}) {
+  const from = normalizeTelegramChatId(params.chatId);
+  const to = process.env.TELEGRAM_BOT_USERNAME ? `telegram:${process.env.TELEGRAM_BOT_USERNAME}` : "telegram:bot";
+  const adminPhone = getAdminPhone();
+  const body = params.text.trim();
+
+  await addMessage({
+    twilioMessageSid: params.messageId ? `telegram:${params.messageId}` : undefined,
+    from,
+    to,
+    body,
+    direction: "inbound"
+  });
+
+  if (/^\/(?:start|link)(?:@\w+)?(?:\s+(.+))?$/i.test(body)) {
+    return handleTelegramStart(from, body, samePhone(from, adminPhone));
+  }
+
+  if (samePhone(from, adminPhone)) {
+    return handleAdminMessage(from, body);
+  }
+
+  const member = await findMemberByPhone(from);
+  if (!member) {
+    return [
+      "I do not recognize this Telegram account yet.",
+      "",
+      "Send /start your-name if the admin already added you by name.",
+      `Or ask the admin to add you with: Add member ${params.firstName || "Name"} ${from}`
+    ].join("\n");
+  }
+
+  return handleMemberReply(member.id, body);
+}
+
+async function handleTelegramStart(from: string, body: string, isAdmin: boolean) {
+  const name = body.replace(/^\/(?:start|link)(?:@\w+)?/i, "").trim();
+
+  if (isAdmin) {
+    return [
+      "Admin Telegram connected.",
+      "",
+      "You can now send normal admin messages here, like:",
+      "Add member Peec telegram:123456789",
+      "This week tasks for Peec:\n1. 3 signboards for Maga"
+    ].join("\n");
+  }
+
+  if (!name) {
+    return [
+      "Welcome. I need to link this Telegram account to your team profile.",
+      "",
+      "Send /start your-name",
+      `Or ask the admin to add you with: Add member Your Name ${from}`
+    ].join("\n");
+  }
+
+  const member = await findMemberByName(name);
+  if (!member) {
+    return `I could not find a member named ${name}. Ask the admin to add you first.`;
+  }
+
+  const linked = await addMember({
+    ...member,
+    phone: from,
+    active: member.active
+  });
+
+  return `Linked Telegram to ${linked.name}. You can now ask: What are my tasks?`;
 }
 
 async function handleAdminMessage(adminPhone: string, body: string) {

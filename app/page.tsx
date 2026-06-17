@@ -15,7 +15,7 @@ export default async function Home() {
       <header className="topbar">
         <div className="brand">
           <strong>Team Manager Agent</strong>
-          <span>WhatsApp task reminders, marketing leads, daily updates</span>
+          <span>Telegram task reminders, marketing leads, daily updates</span>
         </div>
         <a className="button secondary" href="/api/dashboard">
           <RefreshCw size={16} />
@@ -26,7 +26,7 @@ export default async function Home() {
       <div className="shell">
         <aside className="sidebar">
           <h2>Admin Command Tester</h2>
-          <p className="subtle">Use this before Twilio is connected. It simulates a WhatsApp message from the admin phone.</p>
+          <p className="subtle">Use this before Telegram is connected. It simulates a message from the admin account.</p>
           <CommandTester />
         </aside>
 
@@ -69,7 +69,7 @@ export default async function Home() {
                     </article>
                   ))
                 ) : (
-                  <p className="subtle">No members yet. Add one with: Add member Amal whatsapp:+947XXXXXXXX marketing</p>
+                  <p className="subtle">No members yet. Add one with: Add member Amal telegram:123456789 marketing</p>
                 )}
               </div>
             </section>
@@ -165,7 +165,7 @@ export default async function Home() {
                     </article>
                   ))
                 ) : (
-                  <p className="subtle">No WhatsApp messages yet.</p>
+                  <p className="subtle">No messages yet.</p>
                 )}
               </div>
             </section>
