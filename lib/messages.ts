@@ -4,11 +4,11 @@ import { formatDateHuman } from "@/lib/utils";
 export function taskBreakdownMessage(member: TeamMember, tasks: Task[]) {
   const lines = tasks.map((task, index) => `${index + 1}. ${task.title}\n   Due: ${formatDateHuman(task.deadline)}`);
   return [
-    `Good morning ${member.name}. Here is your task breakdown:`,
+    `${timeGreeting(member)} ${member.name}. Here is your task breakdown:`,
     "",
     lines.join("\n\n"),
     "",
-    "I will check in daily. Reply with any short update. If something is done or blocked, just say that naturally."
+    "I will check in daily. Reply with a short update about the work."
   ].join("\n");
 }
 
@@ -21,10 +21,25 @@ export function dailyCheckinMessage(member: TeamMember, tasks: Task[], leads: Le
     taskLines.length ? "\nTasks:\n" + taskLines.join("\n") : "",
     leadLines.length ? "\nLeads:\n" + leadLines.join("\n") : "",
     "",
-    "Please reply with a short update. If something is done, blocked, contacted, interested, or needs follow-up, just say that naturally."
+    "Please reply with a short update about the work."
   ]
     .filter(Boolean)
     .join("\n");
+}
+
+function timeGreeting(member: TeamMember) {
+  const timezone = member.timezone || process.env.AGENT_TIMEZONE || "Asia/Colombo";
+  const hour = Number(
+    new Intl.DateTimeFormat("en-US", {
+      hour: "numeric",
+      hour12: false,
+      timeZone: timezone
+    }).format(new Date())
+  );
+
+  if (hour < 12) return "Good morning";
+  if (hour < 17) return "Good afternoon";
+  return "Good evening";
 }
 
 export function leadAssignmentMessage(member: TeamMember, lead: Lead) {

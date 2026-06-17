@@ -16,7 +16,6 @@ import {
   readState,
   updateTask,
   updateLeadStatus,
-  updateTaskStatus,
   upsertMemory
 } from "@/lib/store";
 import { dailyCheckinMessage, leadAssignmentMessage, taskBreakdownMessage } from "@/lib/messages";
@@ -365,7 +364,12 @@ async function handleMemberReply(memberId: string, body: string) {
       ? state.tasks.find((item) => item.id === update.taskId)
       : state.tasks.find((item) => item.memberId === memberId && item.title.toLowerCase().includes((update.taskTitleHint || "").toLowerCase()));
     if (task) {
-      const updated = update.status ? await updateTaskStatus(task.id, update.status, update.note) : await appendTaskNote(task, update.note || body);
+      const updated = await applyMemberTaskUpdate(task, {
+        status: update.status,
+        deadline: update.deadline,
+        note: update.note || body,
+        memberName: member.name
+      });
       if (updated) updatedTasks.push(updated);
     }
   }
@@ -406,9 +410,61 @@ async function handleMemberReply(memberId: string, body: string) {
   ].join("\n");
 }
 
-async function appendTaskNote(task: Task, note: string) {
-  const description = [task.description, `Update: ${note}`].filter(Boolean).join("\n");
-  return updateTask(task.id, { description });
+async function applyMemberTaskUpdate(
+  task: Task,
+  update: {
+    status?: Task["status"];
+    deadline?: string;
+    note: string;
+    memberName: string;
+  }
+) {
+  const oldDeadline = task.deadline;
+  const description = [task.description, `Update: ${update.note}`].filter(Boolean).join("\n");
+  const updated = await updateTask(task.id, {
+    description,
+    status: update.status,
+    deadline: update.deadline
+  });
+
+  if (updated && update.deadline && !sameDate(oldDeadline, update.deadline)) {
+    await notifyAdminDeadlineChange({
+      memberName: update.memberName,
+      taskTitle: task.title,
+      oldDeadline,
+      newDeadline: update.deadline,
+      note: update.note
+    });
+  }
+
+  return updated;
+}
+
+async function notifyAdminDeadlineChange(params: {
+  memberName: string;
+  taskTitle: string;
+  oldDeadline?: string;
+  newDeadline: string;
+  note: string;
+}) {
+  const adminPhone = getAdminPhone();
+  if (!adminPhone) return;
+
+  await sendWhatsApp(
+    adminPhone,
+    [
+      "Deadline changed by member:",
+      `${params.memberName} - ${params.taskTitle}`,
+      `Old due: ${formatDate(params.oldDeadline)}`,
+      `New due: ${formatDate(params.newDeadline)}`,
+      `Update: ${params.note}`
+    ].join("\n")
+  );
+}
+
+function sameDate(a?: string, b?: string) {
+  if (!a || !b) return a === b;
+  return new Date(a).toISOString().slice(0, 10) === new Date(b).toISOString().slice(0, 10);
 }
 
 async function sendWeeklyBreakdowns(createdTasks: Task[]) {

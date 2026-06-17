@@ -59,6 +59,7 @@ const memberReplySchema = z.object({
       taskId: z.string().optional(),
       taskTitleHint: z.string().optional(),
       status: z.enum(["todo", "in_progress", "blocked", "done", "cancelled"]).optional(),
+      deadline: z.string().optional(),
       note: z.string().optional()
     })
   ),
@@ -375,6 +376,7 @@ export async function interpretMemberReply(memberId: string, body: string, state
         "Members may reply with normal short progress notes; do not require command words.",
         "For a plain update note, match it to the most relevant task and include note without changing status.",
         "Only set status when the member clearly says done, complete, blocked, stuck, in progress, started, or similar.",
+        "If the member proposes a new completion date or says they will finish by a different date, set deadline to an ISO date.",
         "When unclear, leave taskId or leadId empty and include a title/name hint.",
         "Keep memory concise and useful for future follow-ups."
       ].join("\n"),
@@ -396,6 +398,7 @@ export async function interpretMemberReply(memberId: string, body: string, state
 
 function interpretMemberReplyHeuristic(body: string, openTasks: AppState["tasks"], priorMemory: string): MemberReplyInterpretation {
   const lowered = body.toLowerCase();
+  const deadline = extractMemberDeadline(body);
   const status: TaskStatus | undefined = lowered.includes("block")
     ? "blocked"
     : lowered.includes("done") || lowered.includes("complete")
@@ -404,10 +407,25 @@ function interpretMemberReplyHeuristic(body: string, openTasks: AppState["tasks"
         ? "in_progress"
         : undefined;
   return {
-    taskUpdates: openTasks[0] ? [{ taskId: openTasks[0].id, status, note: body }] : [],
+    taskUpdates: openTasks[0] ? [{ taskId: openTasks[0].id, status, deadline, note: body }] : [],
     leadUpdates: [],
     memorySummary: priorMemory || "Member replies are being stored; AI memory needs GOOGLE_GENERATIVE_AI_API_KEY for summaries."
   };
+}
+
+function extractMemberDeadline(body: string) {
+  const match = body.match(/\b(?:by|before|on)\s+([a-zA-Z]+\s+\d{1,2}(?:st|nd|rd|th)?|\d{1,2}(?:st|nd|rd|th)?(?:\s+[a-zA-Z]+)?)/i);
+  if (!match) return undefined;
+  return normalizeCasualDate(match[1]);
+}
+
+function normalizeCasualDate(input: string) {
+  const cleaned = input.replace(/\b(\d{1,2})(st|nd|rd|th)\b/gi, "$1").trim();
+  const withYear = /\b\d{4}\b/.test(cleaned) ? cleaned : `${cleaned} ${new Date().getFullYear()}`;
+  const parsed = new Date(withYear);
+  if (Number.isNaN(parsed.getTime())) return undefined;
+  parsed.setHours(9, 0, 0, 0);
+  return parsed.toISOString();
 }
 
 export function parseAdminMessageHeuristic(body: string): AdminIntent {
