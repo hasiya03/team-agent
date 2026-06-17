@@ -11,6 +11,7 @@ export function createId(prefix: string) {
 export function normalizePhone(phone: string) {
   const trimmed = phone.trim();
   if (trimmed.toLowerCase().startsWith("telegram:")) return trimmed;
+  if (trimmed.toLowerCase().startsWith("pending:")) return trimmed;
   return trimmed.startsWith("whatsapp:") ? trimmed : `whatsapp:${trimmed}`;
 }
 

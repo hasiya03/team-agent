@@ -194,6 +194,18 @@ function completeConversationIntent(
   if (params.senderRole !== "admin") return intent;
 
   const memberFields = extractAddMemberFields(params.body);
+  const nameOnlyMember = extractAddMemberNameOnly(params.body);
+  if (nameOnlyMember && (intent.intent === "add_member" || intent.intent === "unknown" || looksLikeAddMemberRequest(params.body))) {
+    return {
+      ...intent,
+      senderRole: "admin",
+      intent: "add_member",
+      targetMemberName: intent.targetMemberName || nameOnlyMember.targetMemberName,
+      memberRole: intent.memberRole || nameOnlyMember.memberRole,
+      confidence: Math.max(intent.confidence || 0, 0.85)
+    };
+  }
+
   if (!memberFields) return intent;
 
   const shouldUseMemberFields = intent.intent === "add_member" || intent.intent === "unknown" || looksLikeAddMemberRequest(params.body);
@@ -212,6 +224,22 @@ function completeConversationIntent(
 
 function looksLikeAddMemberRequest(text: string) {
   return /\badd\b/i.test(text) && /\bmember|memeber|telegram:\s*-?\d|whatsapp:\s*\+?\d|\+\d/i.test(text);
+}
+
+function extractAddMemberNameOnly(text: string): Pick<AdminIntent, "targetMemberName" | "memberRole"> | undefined {
+  const match = text.trim().match(/^add\s+(?:(?:new\s+)?(?:member|memeber)\s+)?([a-zA-Z][a-zA-Z ]{1,50})(?:\s+(?:as\s+|role\s+)?(admin|marketing|operations|design|development|developer|general))?$/i);
+  if (!match) return undefined;
+
+  const targetMemberName = match[1]
+    .trim()
+    .replace(/\b(?:as|role|admin|marketing|operations|design|development|developer|general)\b.*$/i, "")
+    .trim();
+  if (!targetMemberName) return undefined;
+
+  return {
+    targetMemberName,
+    memberRole: match[2]?.toLowerCase()
+  };
 }
 
 function extractAddMemberFields(text: string): Pick<AdminIntent, "targetMemberName" | "memberPhone" | "memberRole"> | undefined {
@@ -375,6 +403,14 @@ function interpretMemberReplyHeuristic(body: string, openTasks: AppState["tasks"
 
 export function parseAdminMessageHeuristic(body: string): AdminIntent {
   const text = body.trim();
+  const addMemberNameOnly = extractAddMemberNameOnly(text);
+  if (addMemberNameOnly) {
+    return {
+      intent: "add_member",
+      ...addMemberNameOnly
+    };
+  }
+
   const addMemberFields = extractAddMemberFields(text);
   if (addMemberFields) {
     return {

@@ -3,6 +3,11 @@ import { addMessage } from "@/lib/store";
 import { sendTelegramMessage } from "@/lib/telegram";
 
 export async function sendWhatsApp(to: string, body: string) {
+  if (to.toLowerCase().startsWith("pending:")) {
+    console.log("[message:pending-contact]", { to, body });
+    return { sid: "pending_contact" };
+  }
+
   if (to.toLowerCase().startsWith("telegram:")) {
     return sendTelegramMessage(to, body);
   }

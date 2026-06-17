@@ -194,16 +194,20 @@ async function handleAdminMessage(adminPhone: string, body: string) {
   const intent = await classifyConversationMessage({ senderRole: "admin", body, state });
 
   if (intent.intent === "add_member") {
-    if (!intent.targetMemberName || !intent.memberPhone) {
-      return "Please send: Add Name whatsapp:+947XXXXXXXX";
+    if (!intent.targetMemberName) {
+      return "Please include the member name. Example: Add member Hasiya";
     }
+    const pendingContact = `pending:${intent.targetMemberName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}`;
     const member = await addMember({
       name: intent.targetMemberName,
-      phone: normalizePhone(intent.memberPhone),
+      phone: intent.memberPhone ? normalizePhone(intent.memberPhone) : pendingContact,
       role: normalizeRole(intent.memberRole),
       timezone: process.env.AGENT_TIMEZONE || "Asia/Colombo",
       preferredReminderHour: 9
     });
+    if (!intent.memberPhone) {
+      return `Added ${member.name}. Ask them to open this Telegram bot and send:\n/start ${member.name}`;
+    }
     return `Added ${member.name}.`;
   }
 

@@ -1,5 +1,13 @@
 import { handleIncomingTelegram } from "@/lib/agent";
-import { sendTelegramMessage } from "@/lib/telegram";
+
+export async function GET() {
+  return Response.json({
+    ok: true,
+    route: "telegram/inbound",
+    hasBotToken: Boolean(process.env.TELEGRAM_BOT_TOKEN),
+    hasWebhookSecret: Boolean(process.env.TELEGRAM_WEBHOOK_SECRET)
+  });
+}
 
 export async function POST(request: Request) {
   try {
@@ -25,11 +33,14 @@ export async function POST(request: Request) {
       firstName: message.from?.first_name
     });
 
-    if (reply) {
-      await sendTelegramMessage(`telegram:${chatId}`, reply);
-    }
+    if (!reply) return Response.json({ ok: true });
 
-    return Response.json({ ok: true });
+    return Response.json({
+      method: "sendMessage",
+      chat_id: chatId,
+      text: reply,
+      disable_web_page_preview: true
+    });
   } catch (error) {
     console.error("[telegram:inbound:error]", error);
     return Response.json({ ok: true });
