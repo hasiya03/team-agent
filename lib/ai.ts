@@ -27,7 +27,9 @@ const adminIntentSchema = z.object({
         memberName: z.string(),
         title: z.string(),
         deadline: z.string().optional(),
-        description: z.string().optional()
+        description: z.string().optional(),
+        business: z.string().optional(),
+        notionTarget: z.enum(["content", "dev", "job", "meeting"]).optional()
       })
     )
     .optional(),
@@ -36,7 +38,9 @@ const adminIntentSchema = z.object({
       memberName: z.string(),
       title: z.string(),
       deadline: z.string().optional(),
-      description: z.string().optional()
+      description: z.string().optional(),
+      business: z.string().optional(),
+      notionTarget: z.enum(["content", "dev", "job", "meeting"]).optional()
     })
     .optional(),
   tasks: z
@@ -45,7 +49,9 @@ const adminIntentSchema = z.object({
         memberName: z.string(),
         title: z.string(),
         deadline: z.string().optional(),
-        description: z.string().optional()
+        description: z.string().optional(),
+        business: z.string().optional(),
+        notionTarget: z.enum(["content", "dev", "job", "meeting"]).optional()
       })
     )
     .optional()
@@ -345,6 +351,8 @@ export async function parseAdminMessage(body: string, state: AppState): Promise<
       "You are a WhatsApp operations agent for a small Sri Lankan team.",
       "Classify the admin message and extract structured data.",
       "Use ISO dates when a deadline is clear. If a date is relative, infer from the current date.",
+      "For each task, extract business when mentioned: Berl View, Lekana, or Berl IT Solutions.",
+      "For each task, set notionTarget when clear: content for social/content/post/design/media work, dev for software/bug/feature/web/app work, job for property/job/site/training/shooting work, meeting for meeting notes.",
       "Do not invent phone numbers, websites, or business names."
     ].join("\n"),
     prompt: JSON.stringify({

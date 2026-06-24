@@ -93,6 +93,8 @@ export type PendingPayload =
         title: string;
         deadline?: string;
         description?: string;
+        business?: string;
+        notionTarget?: "content" | "dev" | "job" | "meeting";
       }>;
     }
   | {

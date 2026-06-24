@@ -19,6 +19,7 @@ import {
   upsertMemory
 } from "@/lib/store";
 import { dailyCheckinMessage, leadAssignmentMessage, taskBreakdownMessage } from "@/lib/messages";
+import { syncTasksToNotion } from "@/lib/notion";
 import { sendWhatsApp } from "@/lib/twilio";
 import { normalizeTelegramChatId } from "@/lib/telegram";
 import { addDays, getAdminPhone, normalizePhone, nowIso, samePhone } from "@/lib/utils";
@@ -144,22 +145,41 @@ async function handleAdminMessage(adminPhone: string, body: string) {
 
     if (payload.kind === "weekly_plan") {
       const state = await readState();
-      const tasksToCreate = payload.tasks
+      const taskDrafts = payload.tasks
         .map((task) => {
           const member = task.memberId
             ? state.members.find((item) => item.id === task.memberId)
             : state.members.find((item) => item.name.toLowerCase() === task.memberName.toLowerCase());
           if (!member) return undefined;
           return {
-            memberId: member.id,
-            title: task.title,
-            deadline: task.deadline,
-            description: task.description
+            member,
+            task: {
+              memberId: member.id,
+              title: task.title,
+              deadline: task.deadline,
+              description: task.description
+            },
+            business: task.business,
+            notionTarget: task.notionTarget
           };
         })
-        .filter(Boolean) as Array<Omit<Task, "id" | "createdAt" | "updatedAt" | "status">>;
+        .filter(Boolean) as Array<{
+        member: NonNullable<Awaited<ReturnType<typeof findMemberByName>>>;
+        task: Omit<Task, "id" | "createdAt" | "updatedAt" | "status">;
+        business?: string;
+        notionTarget?: "content" | "dev" | "job" | "meeting";
+      }>;
 
-      const created = await addTasks(tasksToCreate);
+      const created = await addTasks(taskDrafts.map((item) => item.task));
+      await syncTasksToNotion(
+        created.map((task, index) => ({
+          task,
+          member: taskDrafts[index]?.member,
+          business: taskDrafts[index]?.business,
+          notionTarget: taskDrafts[index]?.notionTarget,
+          sourceText: confirmation.summary
+        }))
+      );
       await sendWeeklyBreakdowns(created);
       return `Confirmed. Saved ${created.length} tasks and sent each member their breakdown.`;
     }
@@ -226,6 +246,16 @@ async function handleAdminMessage(adminPhone: string, body: string) {
         title: taskItem.title,
         deadline: taskItem.deadline,
         description: taskItem.description
+      }))
+    );
+
+    await syncTasksToNotion(
+      tasks.map((task, index) => ({
+        task,
+        member,
+        business: taskItems[index]?.business,
+        notionTarget: taskItems[index]?.notionTarget,
+        sourceText: body
       }))
     );
 
